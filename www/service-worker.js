@@ -1,4 +1,4 @@
-const CACHE_NAME = 'tetris-game-v1';
+const CACHE_NAME = 'tetris-game-v2';
 const urlsToCache = [
   './',
   './index.html',
