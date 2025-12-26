@@ -42,9 +42,28 @@
         #install-btn:hover {
             background-color: #45a049;
         }
+        #download-link {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            padding: 10px 20px;
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: bold;
+            text-decoration: none;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        #download-link:hover {
+            background-color: #1976D2;
+        }
     </style>
 </head>
 <body>
+    <a id="download-link" href="https://github.com/kojaehong/tetris-game/raw/main/app-debug.apk">앱 다운로드</a>
     <button id="install-btn">앱 설치</button>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <script>
