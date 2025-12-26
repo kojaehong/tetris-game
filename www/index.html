@@ -17,14 +17,35 @@
         }
         body {
             display: flex;
+            flex-direction: column;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             background-color: #0f0f1a;
         }
+        #install-btn {
+            display: none;
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 1000;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        #install-btn:hover {
+            background-color: #45a049;
+        }
     </style>
 </head>
 <body>
+    <button id="install-btn">앱 설치</button>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
     <script>
         // ============================================
@@ -975,8 +996,9 @@
         const game = new Phaser.Game(config);
     </script>
 
-    <!-- Service Worker Registration -->
+    <!-- Service Worker Registration & PWA Install -->
     <script>
+        // Service Worker Registration
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./service-worker.js')
@@ -987,6 +1009,49 @@
                         console.log('ServiceWorker registration failed: ', error);
                     });
             });
+        }
+
+        // PWA Install Button
+        let deferredPrompt;
+        const installBtn = document.getElementById('install-btn');
+
+        // beforeinstallprompt 이벤트 캡처
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // 브라우저 기본 설치 프롬프트 방지
+            e.preventDefault();
+            // 이벤트 저장
+            deferredPrompt = e;
+            // 설치 버튼 표시
+            installBtn.style.display = 'block';
+        });
+
+        // 설치 버튼 클릭 이벤트
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+
+            // 설치 프롬프트 표시
+            deferredPrompt.prompt();
+
+            // 사용자 응답 대기
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log('User response to install prompt:', outcome);
+
+            // 프롬프트 초기화 (한 번만 사용 가능)
+            deferredPrompt = null;
+            // 버튼 숨기기
+            installBtn.style.display = 'none';
+        });
+
+        // 앱이 설치된 경우 버튼 숨기기
+        window.addEventListener('appinstalled', () => {
+            console.log('PWA was installed');
+            installBtn.style.display = 'none';
+            deferredPrompt = null;
+        });
+
+        // standalone 모드로 실행 중이면 버튼 숨기기 (이미 설치됨)
+        if (window.matchMedia('(display-mode: standalone)').matches) {
+            installBtn.style.display = 'none';
         }
     </script>
 </body>
