@@ -1,0 +1,973 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tetris Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #0f0f1a;
+        }
+    </style>
+</head>
+<body>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.60.0/dist/phaser.min.js"></script>
+    <script>
+        // ============================================
+        // 전역 상수 (Grid Constants)
+        // ============================================
+        const COLS = 10;        // 열 개수
+        const ROWS = 20;        // 행 개수
+        const CELL = 30;        // 셀 크기 (픽셀)
+        const BOARD_X = 0;      // 보드 시작 X 좌표
+        const BOARD_Y = 0;      // 보드 시작 Y 좌표
+
+        const GAME_WIDTH = COLS * CELL;   // 게임 영역 너비: 300px
+        const UI_WIDTH = 100;              // UI 영역 너비: 100px
+        const CANVAS_WIDTH = GAME_WIDTH + UI_WIDTH;  // 전체 캔버스: 400px
+        const CANVAS_HEIGHT = ROWS * CELL;           // 캔버스 높이: 600px
+
+        // 색상 상수
+        const COLORS = {
+            EMPTY: 0x1a1a2e,        // 빈 셀 배경색
+            GRID_LINE: 0x2a2a4e,    // 그리드 라인 색상
+            BORDER: 0xffffff,       // 테두리 색상
+            UI_BG: 0x16213e         // UI 영역 배경색
+        };
+
+        // ============================================
+        // 테트로미노 정의 (Tetromino Definitions)
+        // ============================================
+        const TETROMINOS = {
+            I: {
+                shape: [
+                    [0, 0, 0, 0],
+                    [1, 1, 1, 1],
+                    [0, 0, 0, 0],
+                    [0, 0, 0, 0]
+                ],
+                color: 0x00ffff  // Cyan (하늘색)
+            },
+            O: {
+                shape: [
+                    [1, 1],
+                    [1, 1]
+                ],
+                color: 0xffff00  // Yellow (노란색)
+            },
+            T: {
+                shape: [
+                    [0, 1, 0],
+                    [1, 1, 1],
+                    [0, 0, 0]
+                ],
+                color: 0x800080  // Purple (보라색)
+            },
+            S: {
+                shape: [
+                    [0, 1, 1],
+                    [1, 1, 0],
+                    [0, 0, 0]
+                ],
+                color: 0x00ff00  // Green (초록색)
+            },
+            Z: {
+                shape: [
+                    [1, 1, 0],
+                    [0, 1, 1],
+                    [0, 0, 0]
+                ],
+                color: 0xff0000  // Red (빨간색)
+            },
+            J: {
+                shape: [
+                    [1, 0, 0],
+                    [1, 1, 1],
+                    [0, 0, 0]
+                ],
+                color: 0x0000ff  // Blue (파란색)
+            },
+            L: {
+                shape: [
+                    [0, 0, 1],
+                    [1, 1, 1],
+                    [0, 0, 0]
+                ],
+                color: 0xff8000  // Orange (주황색)
+            }
+        };
+
+        // 테트로미노 타입 배열 (7-Bag용)
+        const PIECE_TYPES = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+
+        // ============================================
+        // SRS Wall Kick 데이터 (Wall Kick Tables)
+        // ============================================
+        // 회전 상태: 0 = spawn, 1 = R (시계방향 1회), 2 = 180도, 3 = L (반시계방향 1회)
+        // 킥 오프셋: [dx, dy] - dx: 오른쪽 양수, dy: 아래쪽 양수
+
+        // J, L, S, T, Z 블록용 킥 테이블
+        const WALL_KICKS_JLSTZ = {
+            '0->1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],   // 0 -> R
+            '1->0': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],     // R -> 0
+            '1->2': [[0, 0], [1, 0], [1, 1], [0, -2], [1, -2]],     // R -> 2
+            '2->1': [[0, 0], [-1, 0], [-1, -1], [0, 2], [-1, 2]],   // 2 -> R
+            '2->3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]],      // 2 -> L
+            '3->2': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],  // L -> 2
+            '3->0': [[0, 0], [-1, 0], [-1, 1], [0, -2], [-1, -2]],  // L -> 0
+            '0->3': [[0, 0], [1, 0], [1, -1], [0, 2], [1, 2]]       // 0 -> L
+        };
+
+        // I 블록용 킥 테이블
+        const WALL_KICKS_I = {
+            '0->1': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],    // 0 -> R
+            '1->0': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]],    // R -> 0
+            '1->2': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]],    // R -> 2
+            '2->1': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],    // 2 -> R
+            '2->3': [[0, 0], [2, 0], [-1, 0], [2, -1], [-1, 2]],    // 2 -> L
+            '3->2': [[0, 0], [-2, 0], [1, 0], [-2, 1], [1, -2]],    // L -> 2
+            '3->0': [[0, 0], [1, 0], [-2, 0], [1, 2], [-2, -1]],    // L -> 0
+            '0->3': [[0, 0], [-1, 0], [2, 0], [-1, -2], [2, 1]]     // 0 -> L
+        };
+
+        // ============================================
+        // 전역 변수 (Game State)
+        // ============================================
+        let board = [];         // 게임 보드 2D 배열
+        let score = 0;          // 현재 점수
+        let level = 1;          // 현재 레벨
+        let lines = 0;          // 클리어한 라인 수
+        let gameOver = false;   // 게임오버 상태
+
+        // ============================================
+        // 타이머 및 속도 변수 (Timer Variables)
+        // ============================================
+        let dropTimer = null;       // 자동 낙하 타이머
+        let dropInterval = 1000;    // 낙하 간격 (ms)
+        let sceneRef = null;        // Scene 참조 저장
+
+        // ============================================
+        // UI 텍스트 객체 (UI Text Objects)
+        // ============================================
+        let scoreText = null;       // 점수 텍스트
+        let levelText = null;       // 레벨 텍스트
+        let linesText = null;       // 라인수 텍스트
+        let gameOverText = null;    // 게임오버 텍스트
+
+        // ============================================
+        // 키보드 입력 변수 (Keyboard Input)
+        // ============================================
+        let cursors = null;     // 방향키 객체
+        let spaceKey = null;    // 스페이스바 키 객체
+        let rKey = null;        // R키 객체
+
+        // ============================================
+        // 블록 변수 (Tetromino Variables)
+        // ============================================
+        let currentPiece = null;    // 현재 조작 중인 블록
+        let nextPiece = null;       // 다음 블록 (미리보기)
+        let bag = [];               // 7-Bag 랜더마이저 배열
+
+        // ============================================
+        // 그래픽스 객체 (Graphics Objects)
+        // ============================================
+        let graphics = null;        // 메인 그래픽스 객체
+
+        // ============================================
+        // 보드 초기화 함수
+        // ============================================
+
+        /**
+         * initBoard - 게임 보드 2D 배열 초기화
+         * 20행 x 10열, 0 = 빈 칸
+         */
+        function initBoard() {
+            board = [];
+            for (let row = 0; row < ROWS; row++) {
+                board[row] = [];
+                for (let col = 0; col < COLS; col++) {
+                    board[row][col] = 0;
+                }
+            }
+        }
+
+        // ============================================
+        // 7-Bag Randomizer 함수들
+        // ============================================
+
+        /**
+         * shuffleBag - 새로운 7-Bag 생성 및 섞기
+         * Fisher-Yates 셔플 알고리즘 사용
+         */
+        function shuffleBag() {
+            bag = [...PIECE_TYPES];
+            for (let i = bag.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [bag[i], bag[j]] = [bag[j], bag[i]];
+            }
+        }
+
+        /**
+         * getNextPiece - 가방에서 다음 블록 타입 가져오기
+         * @returns {string} 블록 타입 (I, O, T, S, Z, J, L)
+         */
+        function getNextPiece() {
+            if (bag.length === 0) {
+                shuffleBag();
+            }
+            return bag.pop();
+        }
+
+        // ============================================
+        // SRS 회전 시스템 함수들
+        // ============================================
+
+        /**
+         * rotatePiece - 2D 배열을 시계방향 90도 회전
+         * @param {Array} shape - 회전할 2D 배열
+         * @param {number} direction - 1: 시계방향, -1: 반시계방향
+         * @returns {Array} 회전된 2D 배열
+         */
+        function rotatePiece(shape, direction) {
+            const size = shape.length;
+            const rotated = [];
+
+            for (let row = 0; row < size; row++) {
+                rotated[row] = [];
+                for (let col = 0; col < size; col++) {
+                    if (direction === 1) {
+                        // 시계방향: (row, col) -> (col, size-1-row)
+                        rotated[row][col] = shape[size - 1 - col][row];
+                    } else {
+                        // 반시계방향: (row, col) -> (size-1-col, row)
+                        rotated[row][col] = shape[col][size - 1 - row];
+                    }
+                }
+            }
+
+            return rotated;
+        }
+
+        /**
+         * isValidPosition - 블록 위치가 유효한지 검사
+         * @param {Array} shape - 블록 모양 2D 배열
+         * @param {number} x - 블록 X 좌표
+         * @param {number} y - 블록 Y 좌표
+         * @returns {boolean} 유효하면 true
+         */
+        function isValidPosition(shape, x, y) {
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const newX = x + col;
+                        const newY = y + row;
+
+                        // 보드 범위 체크
+                        if (newX < 0 || newX >= COLS || newY >= ROWS) {
+                            return false;
+                        }
+
+                        // 바닥 위에서만 체크 (스폰 시 상단 영역 허용)
+                        if (newY >= 0 && board[newY][newX] !== 0) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        /**
+         * getWallKickData - 블록 타입에 따른 Wall Kick 테이블 가져오기
+         * @param {string} type - 블록 타입
+         * @returns {Object} Wall Kick 테이블
+         */
+        function getWallKickData(type) {
+            return type === 'I' ? WALL_KICKS_I : WALL_KICKS_JLSTZ;
+        }
+
+        /**
+         * tryRotate - 회전 시도 (Wall Kick 적용)
+         * @param {number} direction - 1: 시계방향, -1: 반시계방향
+         * @returns {boolean} 회전 성공 여부
+         */
+        function tryRotate(direction) {
+            if (!currentPiece) return false;
+
+            // O 블록은 회전해도 동일한 형태
+            if (currentPiece.type === 'O') return true;
+
+            const oldState = currentPiece.rotationState;
+            const newState = (oldState + direction + 4) % 4;
+            const rotatedShape = rotatePiece(currentPiece.shape, direction);
+
+            // Wall Kick 테이블 가져오기
+            const kickData = getWallKickData(currentPiece.type);
+            const kickKey = `${oldState}->${newState}`;
+            const kicks = kickData[kickKey];
+
+            if (!kicks) return false;
+
+            // 각 킥 오프셋 시도
+            for (const [dx, dy] of kicks) {
+                const newX = currentPiece.x + dx;
+                const newY = currentPiece.y - dy;  // dy는 위쪽이 양수이므로 반전
+
+                if (isValidPosition(rotatedShape, newX, newY)) {
+                    currentPiece.shape = rotatedShape;
+                    currentPiece.x = newX;
+                    currentPiece.y = newY;
+                    currentPiece.rotationState = newState;
+                    return true;
+                }
+            }
+
+            return false;  // 모든 킥 실패
+        }
+
+        // ============================================
+        // 블록 스폰 함수들
+        // ============================================
+
+        /**
+         * createPiece - 새 블록 객체 생성
+         * @param {string} type - 블록 타입
+         * @returns {Object} 블록 객체
+         */
+        function createPiece(type) {
+            const tetromino = TETROMINOS[type];
+            const shape = tetromino.shape.map(row => [...row]);  // 깊은 복사
+
+            return {
+                type: type,
+                shape: shape,
+                color: tetromino.color,
+                x: Math.floor((COLS - shape[0].length) / 2),  // 상단 중앙
+                y: 0,
+                rotationState: 0
+            };
+        }
+
+        /**
+         * spawnPiece - 다음 블록을 현재 블록으로, 새 다음 블록 생성
+         * @returns {boolean} 스폰 성공 여부 (게임오버 판정용)
+         */
+        function spawnPiece() {
+            // 다음 블록을 현재 블록으로
+            if (nextPiece) {
+                currentPiece = nextPiece;
+            } else {
+                // 게임 시작 시 첫 블록
+                currentPiece = createPiece(getNextPiece());
+            }
+
+            // 새 다음 블록 생성
+            nextPiece = createPiece(getNextPiece());
+
+            // 스폰 위치로 이동
+            currentPiece.x = Math.floor((COLS - currentPiece.shape[0].length) / 2);
+            currentPiece.y = 0;
+            currentPiece.rotationState = 0;
+
+            // 스폰 위치 유효성 검사 (게임오버 판정)
+            return isValidPosition(currentPiece.shape, currentPiece.x, currentPiece.y);
+        }
+
+        // ============================================
+        // 이동 함수들 (Movement Functions)
+        // ============================================
+
+        /**
+         * moveLeft - 현재 블록을 왼쪽으로 한 칸 이동
+         * @returns {boolean} 이동 성공 여부
+         */
+        function moveLeft() {
+            if (!currentPiece || gameOver) return false;
+
+            // 왼쪽으로 이동 가능한지 검사
+            if (isValidPosition(currentPiece.shape, currentPiece.x - 1, currentPiece.y)) {
+                currentPiece.x -= 1;
+                drawBoard();
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * moveRight - 현재 블록을 오른쪽으로 한 칸 이동
+         * @returns {boolean} 이동 성공 여부
+         */
+        function moveRight() {
+            if (!currentPiece || gameOver) return false;
+
+            // 오른쪽으로 이동 가능한지 검사
+            if (isValidPosition(currentPiece.shape, currentPiece.x + 1, currentPiece.y)) {
+                currentPiece.x += 1;
+                drawBoard();
+                return true;
+            }
+            return false;
+        }
+
+        /**
+         * softDrop - 현재 블록을 한 칸 아래로 이동 (소프트 드롭)
+         * @returns {boolean} 이동 성공 여부
+         */
+        function softDrop() {
+            if (!currentPiece || gameOver) return false;
+
+            // 아래로 이동 가능한지 검사
+            if (isValidPosition(currentPiece.shape, currentPiece.x, currentPiece.y + 1)) {
+                currentPiece.y += 1;
+                drawBoard();
+                return true;
+            } else {
+                // 이동 불가능하면 블록 고정 (game 에이전트에서 구현)
+                lockPiece();
+                return false;
+            }
+        }
+
+        /**
+         * hardDrop - 현재 블록을 바닥까지 즉시 이동 (하드 드롭)
+         */
+        function hardDrop() {
+            if (!currentPiece || gameOver) return;
+
+            // 바닥까지 이동
+            while (isValidPosition(currentPiece.shape, currentPiece.x, currentPiece.y + 1)) {
+                currentPiece.y += 1;
+            }
+
+            // 블록 고정 (game 에이전트에서 구현)
+            lockPiece();
+            drawBoard();
+        }
+
+        /**
+         * lockPiece - 현재 블록을 보드에 고정
+         */
+        function lockPiece() {
+            if (!currentPiece) return;
+
+            // 현재 블록을 보드에 고정
+            const shape = currentPiece.shape;
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const boardY = currentPiece.y + row;
+                        const boardX = currentPiece.x + col;
+
+                        // 보드 범위 내에서만 고정
+                        if (boardY >= 0 && boardY < ROWS && boardX >= 0 && boardX < COLS) {
+                            board[boardY][boardX] = currentPiece.color;
+                        }
+                    }
+                }
+            }
+
+            // 라인 클리어 체크 및 점수 업데이트
+            const linesCleared = clearLines();
+            if (linesCleared > 0) {
+                updateScore(linesCleared);
+            }
+
+            // 새 블록 스폰
+            if (!spawnPiece()) {
+                // 스폰 실패 시 게임오버
+                gameOver = true;
+                if (gameOverText) {
+                    gameOverText.setVisible(true);
+                }
+                console.log('Game Over!');
+            }
+
+            drawBoard();
+        }
+
+        /**
+         * clearLines - 완성된 줄을 감지하고 제거
+         * @returns {number} 클리어된 줄 수
+         */
+        function clearLines() {
+            let linesCleared = 0;
+
+            // 아래에서 위로 검사
+            for (let row = ROWS - 1; row >= 0; row--) {
+                // 해당 줄이 모두 채워졌는지 검사
+                let isComplete = true;
+                for (let col = 0; col < COLS; col++) {
+                    if (board[row][col] === 0) {
+                        isComplete = false;
+                        break;
+                    }
+                }
+
+                if (isComplete) {
+                    // 해당 줄 제거
+                    board.splice(row, 1);
+
+                    // 상단에 새 빈 줄 추가
+                    const emptyRow = [];
+                    for (let col = 0; col < COLS; col++) {
+                        emptyRow.push(0);
+                    }
+                    board.unshift(emptyRow);
+
+                    linesCleared++;
+
+                    // 같은 행 다시 검사 (위에서 내려온 줄)
+                    row++;
+                }
+            }
+
+            return linesCleared;
+        }
+
+        /**
+         * updateScore - 점수 및 레벨 업데이트
+         * @param {number} linesCleared - 클리어된 줄 수
+         */
+        function updateScore(linesCleared) {
+            // 점수 테이블: 1줄=100, 2줄=300, 3줄=500, 4줄=800
+            const scoreTable = [0, 100, 300, 500, 800];
+            const baseScore = scoreTable[Math.min(linesCleared, 4)];
+
+            // 점수 = 기본점수 x 레벨
+            score += baseScore * level;
+
+            // 총 라인수 업데이트
+            lines += linesCleared;
+
+            // 레벨업 체크: 10줄마다 레벨업
+            if (lines >= level * 10) {
+                levelUp();
+            }
+
+            // UI 업데이트
+            updateUI();
+        }
+
+        /**
+         * levelUp - 레벨업 처리
+         */
+        function levelUp() {
+            level++;
+
+            // 낙하 속도 10% 증가 (간격 10% 감소)
+            dropInterval = Math.max(100, dropInterval * 0.9);
+
+            // 타이머 재설정
+            if (dropTimer && sceneRef) {
+                dropTimer.remove();
+                dropTimer = sceneRef.time.addEvent({
+                    delay: dropInterval,
+                    callback: autoDrop,
+                    loop: true
+                });
+            }
+
+            // UI 업데이트
+            updateUI();
+
+            console.log('Level Up! Level:', level, 'Drop Interval:', dropInterval);
+        }
+
+        /**
+         * autoDrop - 자동 낙하 (타이머 콜백)
+         */
+        function autoDrop() {
+            if (gameOver) return;
+            softDrop();
+        }
+
+        /**
+         * updateUI - UI 텍스트 업데이트
+         */
+        function updateUI() {
+            if (scoreText) {
+                scoreText.setText('SCORE\n' + score);
+            }
+            if (levelText) {
+                levelText.setText('LEVEL\n' + level);
+            }
+            if (linesText) {
+                linesText.setText('LINES\n' + lines);
+            }
+        }
+
+        /**
+         * restartGame - 게임 재시작
+         */
+        function restartGame() {
+            // 게임 상태 초기화
+            gameOver = false;
+            score = 0;
+            level = 1;
+            lines = 0;
+
+            // 낙하 속도 초기화
+            dropInterval = 1000;
+
+            // 보드 초기화
+            initBoard();
+
+            // 7-Bag 초기화
+            shuffleBag();
+
+            // 다음 블록 초기화
+            nextPiece = null;
+
+            // 새 블록 스폰
+            spawnPiece();
+
+            // 타이머 재설정
+            if (dropTimer && sceneRef) {
+                dropTimer.remove();
+                dropTimer = sceneRef.time.addEvent({
+                    delay: dropInterval,
+                    callback: autoDrop,
+                    loop: true
+                });
+            }
+
+            // 게임오버 텍스트 숨김
+            if (gameOverText) {
+                gameOverText.setVisible(false);
+            }
+
+            // UI 업데이트
+            updateUI();
+
+            // 보드 다시 그리기
+            drawBoard();
+
+            console.log('Game Restarted!');
+        }
+
+        // ============================================
+        // 그리기 함수들
+        // ============================================
+
+        /**
+         * drawCell - 지정 위치에 단일 셀 그리기
+         * @param {number} col - 열 인덱스 (0-9)
+         * @param {number} row - 행 인덱스 (0-19)
+         * @param {number} color - 16진수 색상값
+         */
+        function drawCell(col, row, color) {
+            const x = BOARD_X + col * CELL;
+            const y = BOARD_Y + row * CELL;
+
+            // 셀 내부 채우기 (1px 간격으로 구분)
+            graphics.fillStyle(color, 1.0);
+            graphics.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+        }
+
+        /**
+         * drawCurrentPiece - 현재 떨어지는 블록 그리기
+         */
+        function drawCurrentPiece() {
+            if (!currentPiece) return;
+
+            const shape = currentPiece.shape;
+            const color = currentPiece.color;
+            const pieceX = currentPiece.x;
+            const pieceY = currentPiece.y;
+
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const boardCol = pieceX + col;
+                        const boardRow = pieceY + row;
+
+                        // 보드 범위 내에서만 그리기 (상단 버퍼 영역은 제외)
+                        if (boardRow >= 0 && boardRow < ROWS && boardCol >= 0 && boardCol < COLS) {
+                            drawCell(boardCol, boardRow, color);
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * drawGhostPiece - Ghost Piece 그리기 (블록이 떨어질 위치 표시)
+         */
+        function drawGhostPiece() {
+            if (!currentPiece) return;
+
+            const shape = currentPiece.shape;
+            const color = currentPiece.color;
+            let ghostY = currentPiece.y;
+
+            // 바닥까지 내려가는 위치 찾기
+            while (isValidPosition(shape, currentPiece.x, ghostY + 1)) {
+                ghostY++;
+            }
+
+            // 현재 위치와 같으면 그리지 않음
+            if (ghostY === currentPiece.y) return;
+
+            // 반투명하게 그리기
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const boardCol = currentPiece.x + col;
+                        const boardRow = ghostY + row;
+
+                        if (boardRow >= 0 && boardRow < ROWS && boardCol >= 0 && boardCol < COLS) {
+                            const x = BOARD_X + boardCol * CELL;
+                            const y = BOARD_Y + boardRow * CELL;
+
+                            // 반투명 채우기
+                            graphics.fillStyle(color, 0.3);
+                            graphics.fillRect(x + 1, y + 1, CELL - 2, CELL - 2);
+
+                            // 테두리
+                            graphics.lineStyle(1, color, 0.5);
+                            graphics.strokeRect(x + 1, y + 1, CELL - 2, CELL - 2);
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * drawNextPiece - 다음 블록 미리보기 그리기
+         */
+        function drawNextPiece() {
+            if (!nextPiece) return;
+
+            const shape = nextPiece.shape;
+            const color = nextPiece.color;
+            const previewSize = 15;  // 작은 크기로 표시
+
+            // 미리보기 영역 시작 위치 (NEXT 라벨 아래)
+            const startX = 310;
+            const startY = 220;
+
+            // "NEXT" 텍스트는 Text 객체로 별도 처리 (필요시)
+
+            // 블록 중앙 정렬을 위한 오프셋 계산
+            const offsetX = (4 - shape[0].length) * previewSize / 2;
+            const offsetY = (4 - shape.length) * previewSize / 2;
+
+            for (let row = 0; row < shape.length; row++) {
+                for (let col = 0; col < shape[row].length; col++) {
+                    if (shape[row][col]) {
+                        const x = startX + offsetX + col * previewSize;
+                        const y = startY + offsetY + row * previewSize;
+
+                        // 셀 채우기
+                        graphics.fillStyle(color, 1.0);
+                        graphics.fillRect(x + 1, y + 1, previewSize - 2, previewSize - 2);
+                    }
+                }
+            }
+        }
+
+        /**
+         * drawBoard - 전체 게임 보드 그리기
+         */
+        function drawBoard() {
+            // 이전 그래픽 지우기
+            graphics.clear();
+
+            // 1. UI 영역 배경 그리기 (오른쪽 100px)
+            graphics.fillStyle(COLORS.UI_BG, 1.0);
+            graphics.fillRect(GAME_WIDTH, 0, UI_WIDTH, CANVAS_HEIGHT);
+
+            // 2. 게임 영역 빈 셀 그리기 (그리드 배경)
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    const x = BOARD_X + col * CELL;
+                    const y = BOARD_Y + row * CELL;
+
+                    // 빈 셀 배경
+                    graphics.fillStyle(COLORS.EMPTY, 1.0);
+                    graphics.fillRect(x, y, CELL, CELL);
+
+                    // 그리드 라인 (셀 테두리)
+                    graphics.lineStyle(1, COLORS.GRID_LINE, 0.5);
+                    graphics.strokeRect(x, y, CELL, CELL);
+                }
+            }
+
+            // 3. 보드에 고정된 블록들 렌더링
+            for (let row = 0; row < ROWS; row++) {
+                for (let col = 0; col < COLS; col++) {
+                    if (board[row][col] !== 0) {
+                        drawCell(col, row, board[row][col]);
+                    }
+                }
+            }
+
+            // 4. Ghost Piece 그리기 (현재 블록보다 먼저)
+            drawGhostPiece();
+
+            // 5. 현재 떨어지는 블록 그리기
+            drawCurrentPiece();
+
+            // 6. 다음 블록 미리보기 그리기
+            drawNextPiece();
+
+            // 7. 게임 영역 테두리 그리기
+            graphics.lineStyle(2, COLORS.BORDER, 1.0);
+            graphics.strokeRect(BOARD_X, BOARD_Y, GAME_WIDTH, CANVAS_HEIGHT);
+        }
+
+        // ============================================
+        // Scene 함수들
+        // ============================================
+
+        /**
+         * preload - 에셋 로드 (현재 없음)
+         */
+        function preload() {
+            // Graphics로 도형을 그리므로 에셋 로드 불필요
+        }
+
+        /**
+         * create - 게임 초기화
+         */
+        function create() {
+            // Scene 참조 저장
+            sceneRef = this;
+
+            // 보드 초기화
+            initBoard();
+
+            // 그래픽스 객체 생성
+            graphics = this.add.graphics();
+
+            // 7-Bag 초기화 및 첫 블록 스폰
+            shuffleBag();
+            spawnPiece();
+
+            // 초기 보드 그리기
+            drawBoard();
+
+            // 키보드 입력 설정
+            cursors = this.input.keyboard.createCursorKeys();
+            spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+            rKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+
+            // 자동 낙하 타이머 설정
+            dropTimer = this.time.addEvent({
+                delay: dropInterval,
+                callback: autoDrop,
+                loop: true
+            });
+
+            // UI 텍스트 생성
+            const textStyle = {
+                fontSize: '14px',
+                fontFamily: 'Arial',
+                color: '#ffffff',
+                align: 'left'
+            };
+
+            // 점수 텍스트 (x: 310, y: 20)
+            scoreText = this.add.text(310, 20, 'SCORE\n0', textStyle);
+
+            // 레벨 텍스트 (x: 310, y: 80)
+            levelText = this.add.text(310, 80, 'LEVEL\n1', textStyle);
+
+            // 라인수 텍스트 (x: 310, y: 140)
+            linesText = this.add.text(310, 140, 'LINES\n0', textStyle);
+
+            // NEXT 라벨 (x: 310, y: 200)
+            this.add.text(310, 200, 'NEXT', { fontSize: '12px', fontFamily: 'Arial', color: '#ffffff' });
+
+            // 게임오버 텍스트 (가운데 정렬, 초기에는 숨김)
+            gameOverText = this.add.text(150, 280, 'GAME OVER\nPress R to Restart', {
+                fontSize: '20px',
+                fontFamily: 'Arial',
+                color: '#ff0000',
+                align: 'center',
+                backgroundColor: '#000000'
+            });
+            gameOverText.setOrigin(0.5, 0.5);
+            gameOverText.setVisible(false);
+        }
+
+        /**
+         * update - 게임 루프 (매 프레임 호출)
+         */
+        function update() {
+            // 키보드가 초기화되지 않았으면 리턴
+            if (!cursors) return;
+
+            // 게임오버 상태에서는 R키만 처리
+            if (gameOver) {
+                if (Phaser.Input.Keyboard.JustDown(rKey)) {
+                    restartGame();
+                }
+                return;
+            }
+
+            // 왼쪽 방향키: 왼쪽 이동
+            if (Phaser.Input.Keyboard.JustDown(cursors.left)) {
+                moveLeft();
+            }
+
+            // 오른쪽 방향키: 오른쪽 이동
+            if (Phaser.Input.Keyboard.JustDown(cursors.right)) {
+                moveRight();
+            }
+
+            // 아래쪽 방향키: 소프트 드롭
+            if (Phaser.Input.Keyboard.JustDown(cursors.down)) {
+                softDrop();
+            }
+
+            // 위쪽 방향키: 시계방향 회전
+            if (Phaser.Input.Keyboard.JustDown(cursors.up)) {
+                if (tryRotate(1)) {
+                    drawBoard();
+                }
+            }
+
+            // 스페이스바: 하드 드롭
+            if (Phaser.Input.Keyboard.JustDown(spaceKey)) {
+                hardDrop();
+            }
+
+            // R키: 게임 재시작
+            if (Phaser.Input.Keyboard.JustDown(rKey)) {
+                restartGame();
+            }
+        }
+
+        // ============================================
+        // Phaser Game Config
+        // ============================================
+        const config = {
+            type: Phaser.AUTO,
+            width: CANVAS_WIDTH,
+            height: CANVAS_HEIGHT,
+            backgroundColor: '#1a1a2e',
+            parent: 'game-container',
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            }
+        };
+
+        // ============================================
+        // 게임 인스턴스 생성
+        // ============================================
+        const game = new Phaser.Game(config);
+    </script>
+</body>
+</html>
